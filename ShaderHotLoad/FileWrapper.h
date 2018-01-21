@@ -3,7 +3,9 @@
 
 #include <fstream>
 #include <filesystem>
-#include <thread>
+
+//Todo list
+//#Go through the code, look at what can be placed in a .cpp file.
 
 namespace SHADERHOTLOAD::FILESYSTEM
 {
@@ -24,6 +26,7 @@ namespace SHADERHOTLOAD::FILESYSTEM
 		mutable std::string myFileData;
 		mutable FileTime lastWriteTime; //This will be changeable! This is never a concer for the outside code
 		mutable std::time_t lastWriteTime_t; //See above!
+		mutable bool updatedSinceLastRead;
 
 		//Helper Functions//
 		inline FileTime LastWriteTime() const { return STDFileSystem::last_write_time(myPath); };
@@ -39,7 +42,6 @@ namespace SHADERHOTLOAD::FILESYSTEM
 		{
 			/*Found at https://stackoverflow.com/questions/6089231/getting-std-ifstream-to-handle-lf-cr-and-crlf */
 			std::string temp;
-			std::istream::sentry sentry(myFile, true);
 			std::streambuf* streamBuffer = myFile.rdbuf();
 			for (;;) {
 				const int c = streamBuffer->sbumpc();
@@ -64,25 +66,23 @@ namespace SHADERHOTLOAD::FILESYSTEM
 		{
 			myFile.clear();
 			myFile.seekg(0, std::ios_base::beg);
+			if (myFile.eof())
+				std::exception("The file is empty.");
 
 			//Clear the string, but expect at least as much data as before.
 			const size_t sizeBeforeClear = myFileData.size();
 			myFileData.clear();
 			myFileData.reserve(sizeBeforeClear);
-
-			if (myFile.eof())
-				std::exception("End of File reached before read");
 			while (!myFile.eof())
-			{
 				myFileData += GetLineOfFile() + '\n';
-			}
 			while (!myFileData.empty() && myFileData.back() == '\n')
 				myFileData.pop_back(); //Remove the extra '\n'!
 		}
 
 	public:
 		//Creates a FileWrapper (read only!) for the specified file. If no path is defined, workingDir will be used!
-		FileWrapper(const std::string_view &file, const std::string_view &directoryPath) throw(std::exception)
+		FileWrapper(const std::string_view &file, const std::string_view &directoryPath) throw(std::exception) :
+			updatedSinceLastRead(false)
 		{
 			std::string path(directoryPath);
 			if (file.empty())
@@ -110,14 +110,10 @@ namespace SHADERHOTLOAD::FILESYSTEM
 			{
 				lastWriteTime = currentWriteTime;
 				lastWriteTime_t = FileTime::clock::to_time_t(lastWriteTime);
+				updatedSinceLastRead = true;
 				return true;
 			}
 			return false;
-		}
-
-		void UpdateData()
-		{
-			ReadDataFromFile();
 		}
 
 		char const* LastTimeModified() const
@@ -130,8 +126,18 @@ namespace SHADERHOTLOAD::FILESYSTEM
 			return myPath.filename().string();
 		}
 
-		std::string_view GetFileData() const
+		std::string PathToFile() const
 		{
+			return myPath.string();
+		}
+
+		std::string_view GetFileData()
+		{
+			if (updatedSinceLastRead)
+			{
+				ReadDataFromFile();
+				updatedSinceLastRead = false;
+			}
 			return myFileData;
 		}
 	};
